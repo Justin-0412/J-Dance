@@ -28,12 +28,32 @@ hide_streamlit_style = """
 
     /* 页面顶部留白，防止内容顶天花板 */
     .block-container {padding-top: 5rem !important; max-width: 100%;}
+    
+    /* ========================================= */
+    /* 🔥 黑客级 CSS：强行汉化文件上传组件 🔥 */
+    /* ========================================= */
+    [data-testid="stFileUploadDropzone"] > div > div > span { display: none !important; }
+    [data-testid="stFileUploadDropzone"] > div > div > small { display: none !important; }
+    [data-testid="stFileUploadDropzone"] > div > div::before { 
+        content: "拖拽课程文件至此处"; 
+        display: block; margin-bottom: 5px; color: #888; 
+        font-family: 'Microsoft YaHei', sans-serif; font-size: 15px; 
+    }
+    [data-testid="stFileUploadDropzone"] > div > div::after { 
+        content: "支持限制：200MB 以内 • 仅限 Excel 格式"; 
+        display: block; font-size: 12px; color: #aaa; margin-top: 5px; 
+    }
+    [data-testid="stFileUploadDropzone"] button p { display: none !important; }
+    [data-testid="stFileUploadDropzone"] button::after { 
+        content: "浏览并选择文件"; 
+        display: block; font-size: 14px; font-weight: 500; font-family: 'Microsoft YaHei', sans-serif;
+    }
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 
-# 你的优化：内存缓存加载音频
+# 内存缓存加载音频
 @st.cache_data
 def get_audio_base64(file_path):
     if not os.path.exists(file_path):
@@ -98,7 +118,7 @@ if not files_ok:
     st.error("⚠️ 缺少音效文件！请确保项目目录下存在 `type.wav` 和 `correct.wav`。")
     st.stop()
 
-# --- 新增优化 1：动态生成并导出标准模板 ---
+# --- 动态生成并导出标准模板 ---
 col_up, col_down = st.sidebar.columns(2)
 template_df = pd.DataFrame({"English": ["Apple", "Hello world!"], "Chinese": ["苹果", "你好，世界！"]})
 template_io = io.BytesIO()
@@ -114,7 +134,7 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-# --- 优化 2：导入时隐藏后缀名 ---
+# --- 导入时隐藏后缀名 ---
 uploaded_file = st.sidebar.file_uploader("📥 导入新课程", type=["xlsx", "xls"])
 if uploaded_file:
     # 去除后缀，强制保存为标准的 .xlsx 以便统一管理
@@ -129,11 +149,22 @@ if not course_files:
     st.info("💡 请在左侧导入你的 Excel 练习表。")
     st.stop()
 
-# --- 优化 2：构建映射字典，UI 层彻底隐藏后缀名 ---
+# --- 构建映射字典，UI 层彻底隐藏后缀名 ---
 course_dict = {f.replace(".xlsx", ""): f for f in course_files}
 
 selected_course_name = st.sidebar.selectbox("📖 选择当前课程", list(course_dict.keys()))
 selected_course = course_dict[selected_course_name] # 底层代码依然调用真实文件名
+
+# 导出按钮
+with open(os.path.join(COURSES_DIR, selected_course), "rb") as file:
+    st.sidebar.download_button(
+        label="📤 导出当前课程",
+        data=file,
+        file_name=selected_course,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
 order_mode = st.sidebar.radio("练习顺序", ["按顺序练习", "随机练习"], key="order_mode")
 
 try:
@@ -391,14 +422,21 @@ html_template = f"""
     timerEl.innerText = formatTime(totalSeconds);
     setInterval(() => {{ totalSeconds++; timerEl.innerText = formatTime(totalSeconds); }}, 1000);
 
+    // --- TTS 引擎修复：防卡死、防浏览器垃圾回收误杀 ---
     function playTTS() {{
-        const msg = new SpeechSynthesisUtterance({safe_eng_json});
-        msg.lang = 'en-US'; 
-        msg.rate = 1.0;
+        window.speechSynthesis.cancel(); // 每次发音前清空历史队列
+        
+        // 将 utterance 挂载到 window 阻止垃圾回收器清理
+        window.currentSpeech = new SpeechSynthesisUtterance({safe_eng_json});
+        window.currentSpeech.lang = 'en-US'; 
+        window.currentSpeech.rate = 1.0;
+        
         const speakerIcon = document.getElementById('speaker');
-        msg.onstart = () => speakerIcon.classList.add('playing');
-        msg.onend = () => speakerIcon.classList.remove('playing');
-        window.speechSynthesis.speak(msg);
+        window.currentSpeech.onstart = () => speakerIcon.classList.add('playing');
+        window.currentSpeech.onend = () => speakerIcon.classList.remove('playing');
+        window.currentSpeech.onerror = (e) => console.log("TTS Error: ", e);
+        
+        window.speechSynthesis.speak(window.currentSpeech);
     }}
 
     if ({should_play_tts}) {{ setTimeout(playTTS, 300); }}
@@ -473,7 +511,7 @@ html_template = f"""
                     setTimeout(() => {{
                         if (sentenceMistake && btnE) btnE.click();
                         else if (!sentenceMistake && btnC) btnC.click();
-                    }}, 500); // 👈 这里保留了你之前改好的 500 毫秒极速跳转
+                    }}, 600); // 👈 极速 600 毫秒跳题
                 }} else {{
                     sentenceMistake = true;
                 }}
