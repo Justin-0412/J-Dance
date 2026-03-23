@@ -448,7 +448,7 @@ html_template = f"""
                     setTimeout(() => {{
                         if (sentenceMistake && btnE) btnE.click();
                         else if (!sentenceMistake && btnC) btnC.click();
-                    }}, 1200);
+                    }}, 600);
                 }} else {{
                     sentenceMistake = true;
                 }}
