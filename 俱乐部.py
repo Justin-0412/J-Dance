@@ -98,19 +98,42 @@ if not files_ok:
     st.error("⚠️ 缺少音效文件！请确保项目目录下存在 `type.wav` 和 `correct.wav`。")
     st.stop()
 
-uploaded_file = st.sidebar.file_uploader("📥 导入新课程", type=["xlsx"])
+# --- 新增优化 1：动态生成并导出标准模板 ---
+col_up, col_down = st.sidebar.columns(2)
+template_df = pd.DataFrame({"English": ["Apple", "Hello world!"], "Chinese": ["苹果", "你好，世界！"]})
+template_io = io.BytesIO()
+with pd.ExcelWriter(template_io, engine='openpyxl') as writer:
+    template_df.to_excel(writer, index=False, sheet_name='J-Dance模板')
+template_data = template_io.getvalue()
+
+st.sidebar.download_button(
+    label="📄 导出标准模板",
+    data=template_data,
+    file_name="J-Dance_标准课程模板.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    use_container_width=True
+)
+
+# --- 优化 2：导入时隐藏后缀名 ---
+uploaded_file = st.sidebar.file_uploader("📥 导入新课程", type=["xlsx", "xls"])
 if uploaded_file:
-    file_path = os.path.join(COURSES_DIR, uploaded_file.name)
+    # 去除后缀，强制保存为标准的 .xlsx 以便统一管理
+    clean_name = re.sub(r'\.xlsx?$|\.xls?$', '', uploaded_file.name)
+    file_path = os.path.join(COURSES_DIR, clean_name + ".xlsx")
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
-    st.sidebar.success(f"《{uploaded_file.name}》导入成功！")
+    st.sidebar.success(f"《{clean_name}》导入成功！")
 
 course_files = [f for f in os.listdir(COURSES_DIR) if f.endswith(".xlsx")]
 if not course_files:
     st.info("💡 请在左侧导入你的 Excel 练习表。")
     st.stop()
 
-selected_course = st.sidebar.selectbox("📖 选择当前课程", course_files)
+# --- 优化 2：构建映射字典，UI 层彻底隐藏后缀名 ---
+course_dict = {f.replace(".xlsx", ""): f for f in course_files}
+
+selected_course_name = st.sidebar.selectbox("📖 选择当前课程", list(course_dict.keys()))
+selected_course = course_dict[selected_course_name] # 底层代码依然调用真实文件名
 order_mode = st.sidebar.radio("练习顺序", ["按顺序练习", "随机练习"], key="order_mode")
 
 try:
@@ -179,7 +202,8 @@ if not st.session_state.has_started:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(f"<h2 style='text-align:center;'>🎉 准备好挑战《{selected_course}》了吗？</h2>", unsafe_allow_html=True)
+        # 使用无后缀的名字
+        st.markdown(f"<h2 style='text-align:center;'>🎉 准备好挑战《{selected_course_name}》了吗？</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center; color:gray;'>点击下方按钮激活系统引擎</p>", unsafe_allow_html=True)
         if st.button("🚀 点击开始练习", use_container_width=True):
             st.session_state.has_started = True
@@ -192,7 +216,8 @@ if not st.session_state.has_started:
 total_queue = len(course_state["practice_order"])
 if course_state["idx"] >= total_queue:
     st.balloons()
-    st.header(f"📈 《{selected_course}》 学习报告")
+    # 使用无后缀的名字
+    st.header(f"📈 《{selected_course_name}》 学习报告")
     st.write(f"总计练习: **{total_queue}** 次 | 失误: **{len(course_state['error_book'])}** 次")
     if len(course_state["error_book"]) > 0:
         error_df = pd.DataFrame(course_state["error_book"]).drop_duplicates(subset=['English'])
@@ -200,7 +225,7 @@ if course_state["idx"] >= total_queue:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             error_df.to_excel(writer, index=False, sheet_name='错题本')
-        st.download_button("📥 导出错题本", data=output.getvalue(), file_name=f"{selected_course}_错题本.xlsx")
+        st.download_button("📥 导出错题本", data=output.getvalue(), file_name=f"{selected_course_name}_错题本.xlsx")
     st.stop()
 
 # ==========================================
@@ -448,7 +473,7 @@ html_template = f"""
                     setTimeout(() => {{
                         if (sentenceMistake && btnE) btnE.click();
                         else if (!sentenceMistake && btnC) btnC.click();
-                    }}, 600);
+                    }}, 500); // 👈 这里保留了你之前改好的 500 毫秒极速跳转
                 }} else {{
                     sentenceMistake = true;
                 }}
